@@ -1,0 +1,25 @@
+tests:
+  - count: 1000000
+    period: 1000
+    dayoffsets: "0"
+    topic: dp_low_priority_logs
+    component: test1
+    message: "Fake message"
+  - count: 1000000
+    period: 1000
+    dayoffsets: "0"
+    topic: logs
+    component: test2
+    message: "Fake message"
+  - count: 500000
+    period: 2000
+    dayoffsets: "0"
+    topic: dp_high_priority_logs
+    component: test3
+    message: "Fake message"
+  - count: 500000
+    period: 2000
+    dayoffsets: "0"
+    topic: cp_high_priority_logs
+    component: test4
+    message: "Fake message"

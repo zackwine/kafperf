@@ -1,0 +1,8 @@
+tests:
+  - count: 1000000
+    period: 20
+    dayoffsets: "0"
+    topic: test
+    component: test1
+    message: "Fake message"
+

@@ -1,0 +1,28 @@
+version: "2.1"
+services:
+  kafka:
+    image: spotify/kafka
+    environment:
+      - ADVERTISED_HOST:127.0.0.1
+      - ADVERTISED_PORT:9092
+    ports:
+      - 9092:9092
+      - 2181:2181
+  client:
+    image: spotify/kafka
+    links: 
+      - kafka
+    entrypoint:
+      - bash
+      - -c
+      - "sleep 30; /opt/kafka_*/bin/kafka-topics.sh --create --zookeeper kafka:2181 --replication-factor 1 --partitions 5 --topic test"
+  consumer:
+    image: spotify/kafka
+    links: 
+      - kafka
+    entrypoint:
+      - bash
+      - -c
+      - "sleep 60; /opt/kafka_*/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --new-consumer --topic test"
+
+

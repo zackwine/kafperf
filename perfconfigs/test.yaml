@@ -1,6 +1,6 @@
 tests:
-  - count: 1000000
-    period: 20
+  - count: 1000
+    period: 20000
     dayoffsets: "0"
     topic: test
     component: test1

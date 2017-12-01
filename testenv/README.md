@@ -6,7 +6,6 @@ A few notes about the test environment
  - Launches a few containers that run kafka, zookeeper, and a consumer
  - Creates a topic "test", and creates a consumer for that topic
 
-
 ## Usage
 
 Run the following from the testenv directory to bring up the test environment:
@@ -16,4 +15,10 @@ Run the following from the testenv directory to bring up the test environment:
 To clean up the test environment run the following:
 
     docker-compose down
+
+## Development notes
+
+To launch another container on the same network as above do the following:
+
+    docker run -it -v $PWD:/kafperf --network testenv_default --link testenv_kafka_1 spotify/kafka  bash -i
 

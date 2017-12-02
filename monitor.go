@@ -7,6 +7,7 @@ import (
 
 type KafkaMonitor struct {
   brokerList []string
+  brokers []*sarama.Broker
   config sarama.Config
   kafkaVersion sarama.KafkaVersion
   client sarama.Client
@@ -45,7 +46,9 @@ func NewKafkaMonitor(brokers []string) (*KafkaMonitor, error) {
 }
 
 func (kafkaMonitor *KafkaMonitor) ConnectBrokers() error {
-  for _, broker := range kafkaMonitor.client.Brokers() {
+  for _, brokerAddr := range kafkaMonitor.brokerList {
+    broker := sarama.NewBroker(brokerAddr)
+    kafkaMonitor.brokers = append(kafkaMonitor.brokers, broker)
     if ok, _ := broker.Connected(); ok {
       continue
     }
@@ -64,7 +67,7 @@ func (kafkaMonitor *KafkaMonitor) ConnectBrokers() error {
 }
 
 func (kafkaMonitor *KafkaMonitor) Close() {
-  for _, broker := range kafkaMonitor.client.Brokers() {
+  for _, broker := range kafkaMonitor.brokers {
     broker.Close()
   }
   kafkaMonitor.client.Close()
@@ -80,6 +83,7 @@ func DumpKafkaState(brokers []string) {
     monitor.Close()
   }()
 
+  logger.Printf("Calling GetTopicMetaData...")
   metadata, err := monitor.GetTopicMetaData(nil)
   if err != nil {
     logger.Printf("Failed to get metadata: %v", err)
@@ -221,7 +225,7 @@ func (kafkaMonitor *KafkaMonitor) GetGroupsMetadata() ([]string, error) {
   req := &sarama.ListGroupsRequest{}
   kafkaMonitor.consumerGroups = nil
 
-  for _, broker := range kafkaMonitor.client.Brokers() {
+  for _, broker := range kafkaMonitor.brokers {
     groupsResp, err2 := broker.ListGroups(req)
     if err2 != nil {
       logger.Printf("err2: %v", err2)
@@ -241,6 +245,8 @@ func (kafkaMonitor *KafkaMonitor) GetGroupsMetadata() ([]string, error) {
 
 func (kafkaMonitor *KafkaMonitor) GetTopicMetaData(topics []string) (metaDataResp *sarama.MetadataResponse, err error) {
   metaDataResp = nil
+
+  logger.Printf("Calling ConnectBrokers...")
   err = kafkaMonitor.ConnectBrokers()
   if err != nil {
     logger.Printf("Failed to connect to brokers: %v", err)
@@ -254,7 +260,7 @@ func (kafkaMonitor *KafkaMonitor) GetTopicMetaData(topics []string) (metaDataRes
     }
   }
   req := &sarama.MetadataRequest{topics}
-  metaDataResp, err = kafkaMonitor.client.Brokers()[0].GetMetadata(req)
+  metaDataResp, err = kafkaMonitor.brokers[0].GetMetadata(req)
   kafkaMonitor.topicMetadata = make(map[string]*sarama.TopicMetadata)
   for _, topicMeta := range metaDataResp.Topics {
     kafkaMonitor.topicMetadata[topicMeta.Name] = topicMeta

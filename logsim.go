@@ -27,6 +27,7 @@ type TestConfig struct {
   Topic string
   Component string
   Message string
+  Msgsize int
 }
 
 type TestConfigs struct {
@@ -88,6 +89,7 @@ func runTest(brokers []string, t *TestConfig, done chan string) {
   var wg sync.WaitGroup
   var successes = 0
   var errors = 0
+  var randstrgen = NewRandStringGen()
 
   kafkaProducer, err := newKafkaProducer(brokers)
   if err != nil {
@@ -144,7 +146,11 @@ func runTest(brokers []string, t *TestConfig, done chan string) {
     wg.Add(t.Count)
 
     for i := 0; i < t.Count; i++ {
-      message_map["message"] = t.Message + " " + strconv.Itoa(offsetIndex) + " :: " + strconv.Itoa(i) 
+      if t.Msgsize > 0 {
+        message_map["message"] = t.Message + " " + randstrgen.RandString(t.Msgsize)
+      }
+      message_map["seqNum"] = strconv.Itoa(i)
+      message_map["offset"] = strconv.Itoa(offsetIndex)
       messagebytes, err := json.Marshal(message_map)
       if err != nil {
         logger.Println(err)

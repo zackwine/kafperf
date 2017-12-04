@@ -1,8 +1,9 @@
 tests:
-  - count: 1000
+  - count: 10
     period: 20000
     dayoffsets: "0"
-    topic: test
+    topic: kafperf
     component: test1
     message: "Fake message"
+    msgsize: 500
 

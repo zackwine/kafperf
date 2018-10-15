@@ -18,8 +18,24 @@ type KafkaMonitor struct {
 }
 
 type KafkaGroupMetadata struct {
-  broker *sarama.Broker
   topics map[string]struct{}
+}
+
+type KafkaGroupPartitionOffset struct {
+  partitionID   int32
+  leader        int32
+  groupOffset   int64
+  newestOffset  int64
+}
+
+type KafkaTopicOffsets struct {
+  topicName     string
+  offsets       []*KafkaGroupPartitionOffset
+}
+
+type KafkaGroupOffsets struct {
+  groupName     string
+  topics        []*KafkaTopicOffsets
 }
 
 func NewKafkaMonitor(brokers []string) (*KafkaMonitor, error) {
@@ -83,7 +99,7 @@ func DumpKafkaState(brokers []string) {
     monitor.Close()
   }()
 
-  logger.Printf("Calling GetTopicMetaData...")
+  logger.Printf("Getting Topic Metadata...")
   metadata, err := monitor.GetTopicMetaData(nil)
   if err != nil {
     logger.Printf("Failed to get metadata: %v", err)
@@ -105,6 +121,7 @@ func DumpKafkaState(brokers []string) {
     }
   }
 
+  logger.Printf("Getting Get Group Metadata...")
   groups, err := monitor.GetGroupsMetadata()
   if err != nil {
     logger.Printf("Failed to get GetGroupsMetadata: %v", err)
@@ -112,12 +129,18 @@ func DumpKafkaState(brokers []string) {
   }
   logger.Printf("Groups: %v", groups)
 
-  for _, kafkaGroupMetadata := range monitor.kafkaGroups {
-    logger.Printf("kafkaGroupMetadata: %v", kafkaGroupMetadata)
+  logger.Printf("Getting Get Group Offsets...")
+  offsets, err := monitor.getGroupOffsets(nil)
+  if err != nil {
+    logger.Printf("Failed to get GroupOffsets: %v", err)
+    return
+  }
+  for _, offset := range offsets {
+    offset.print()
   }
 }
 
-func (kafkaMonitor *KafkaMonitor) GetGroupOffsets(groups []string) (offsets []string, err error) {
+func (kafkaMonitor *KafkaMonitor) GetGroupOffsets(groups []string) (offsets map[string]*KafkaGroupOffsets, err error) {
   _, err = kafkaMonitor.GetTopicMetaData(nil)
   if err != nil {
     logger.Printf("Failed to get GetTopicMetaData: %v", err)
@@ -135,23 +158,62 @@ func (kafkaMonitor *KafkaMonitor) GetGroupOffsets(groups []string) (offsets []st
   return
 }
 
+func (kgo *KafkaGroupOffsets) print() {
+  logger.Printf("%s consumer group topics (%d)", kgo.groupName, len(kgo.topics))
+  for _, topic := range kgo.topics {
+    logger.Printf("  %s topic partitions (%d)", topic.topicName, len(topic.offsets))
+    for _, offset := range topic.offsets {
+      logger.Printf("    partitionID: %d, leader: %d, newestOffset: %d, groupOffset: %d, lag: %d",
+        offset.partitionID, offset.leader, offset.newestOffset, offset.groupOffset, (offset.newestOffset-offset.groupOffset))
+    }
+  }
+}
+
 // Assumes GetTopicMetaData and GetGroupsMetadata have been called recently to populate KafkaMonitor struct
-func (kafkaMonitor *KafkaMonitor) getGroupOffsets(groups []string) (offsets []string, err error) {
+func (kafkaMonitor *KafkaMonitor) getGroupOffsets(groups []string) (offsets map[string]*KafkaGroupOffsets, err error) {
+
+  offsets = make(map[string]*KafkaGroupOffsets)
 
   if groups == nil {
     groups = kafkaMonitor.consumerGroups
   }
 
   for _, group := range groups {
+    groupOffsets := &KafkaGroupOffsets{
+      groupName: group,
+      topics: make([]*KafkaTopicOffsets, 0),
+    }
     // For a given group loop over topics it references.
     for topic, _ := range kafkaMonitor.kafkaGroups[group].topics {
       topicMeta := kafkaMonitor.topicMetadata[topic]
+      topicOffsets := &KafkaTopicOffsets{
+        topicName: topic,
+        offsets: make([]*KafkaGroupPartitionOffset, 0),
+      }
       // For a given topic loop over partitions
       for _, partition := range topicMeta.Partitions {
         // Get offsets for each group/topic/partition combo
-        logger.Printf("partition: %d", partition)
+        groupOffset, err := kafkaMonitor.getGroupOffset(topic, group, partition.ID)
+        if err != nil {
+          logger.Printf("Failed to get group offset: %v", err)
+          continue
+        }
+        newestOffset, err := kafkaMonitor.client.GetOffset(topic, partition.ID, sarama.OffsetNewest)
+        if err != nil {
+          logger.Printf("Failed to get topic offset: %v", err)
+          continue
+        }
+        groupPartitionOffset := &KafkaGroupPartitionOffset{
+          partitionID:  partition.ID,
+          leader:       partition.Leader,
+          groupOffset:  groupOffset,
+          newestOffset: newestOffset,
+        }
+        topicOffsets.offsets = append(topicOffsets.offsets, groupPartitionOffset)
       }
+      groupOffsets.topics = append(groupOffsets.topics, topicOffsets)
     }
+    offsets[group] = groupOffsets
   }
   return
 }
@@ -175,7 +237,7 @@ func (kafkaMonitor *KafkaMonitor) getGroupOffset(topic string, group string, par
   defer pom.Close()
 
   grpOffset, _ = pom.NextOffset()
-  logger.Printf("Found group offset for group=%s topic=%s partition=%d offset=%v", group, topic, partition, grpOffset)
+  //logger.Printf("Found group offset for group=%s topic=%s partition=%d offset=%v", group, topic, partition, grpOffset)
   return
 }
 
@@ -193,7 +255,6 @@ func (kafkaMonitor *KafkaMonitor) getGroupsDescription(broker *sarama.Broker, gr
     //logger.Printf("groupName: %s, groupDescs: %+v", groupDesc.GroupId, groupDesc)
 
     kafkaGroupMeta := &KafkaGroupMetadata{}
-    kafkaGroupMeta.broker = broker
     kafkaGroupMeta.topics = make(map[string]struct{})
 
     for _, memberDesc := range groupDesc.Members {
@@ -239,14 +300,12 @@ func (kafkaMonitor *KafkaMonitor) GetGroupsMetadata() ([]string, error) {
     }
     kafkaMonitor.getGroupsDescription(broker, groups)
   }
-  logger.Printf("groups: %v", groups)
   return groups, nil
 }
 
 func (kafkaMonitor *KafkaMonitor) GetTopicMetaData(topics []string) (metaDataResp *sarama.MetadataResponse, err error) {
   metaDataResp = nil
 
-  logger.Printf("Calling ConnectBrokers...")
   err = kafkaMonitor.ConnectBrokers()
   if err != nil {
     logger.Printf("Failed to connect to brokers: %v", err)
@@ -259,7 +318,7 @@ func (kafkaMonitor *KafkaMonitor) GetTopicMetaData(topics []string) (metaDataRes
       return
     }
   }
-  req := &sarama.MetadataRequest{topics}
+  req := &sarama.MetadataRequest{Topics:topics}
   metaDataResp, err = kafkaMonitor.brokers[0].GetMetadata(req)
   kafkaMonitor.topicMetadata = make(map[string]*sarama.TopicMetadata)
   for _, topicMeta := range metaDataResp.Topics {

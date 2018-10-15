@@ -28,6 +28,7 @@ type TestConfig struct {
   Component string
   Message string
   Msgsize int
+  Fields map[string]string
 }
 
 type TestConfigs struct {
@@ -69,6 +70,7 @@ func runTests(brokers []string, testFilename string) {
     logger.Printf("error: %v", err)
     panic(err)
   }
+  logger.Printf("TestConfigs: %v", testConfigs)
   done := make(chan string)
 
   for index, testConfig := range testConfigs.TestCfgs {
